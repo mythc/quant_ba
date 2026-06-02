@@ -17,17 +17,19 @@ const defaultWSURL = "wss://stream.binance.com:9443/ws"
 type WSClient struct {
 	url         string
 	conn        *websocket.Conn
+	rest        *RESTClient
 	mu          sync.Mutex
 	subscribers map[string]map[chan types.Kline]struct{} // key: symbol@interval
 	done        chan struct{}
 }
 
-func NewWSClient(url string) *WSClient {
+func NewWSClient(url string, rest *RESTClient) *WSClient {
 	if url == "" {
 		url = defaultWSURL
 	}
 	return &WSClient{
 		url:         url,
+		rest:        rest,
 		subscribers: make(map[string]map[chan types.Kline]struct{}),
 		done:        make(chan struct{}),
 	}
@@ -88,6 +90,11 @@ func (w *WSClient) Unsubscribe(symbol string, interval string) error {
 		"id":     time.Now().UnixMilli(),
 	}
 	return w.conn.WriteJSON(msg)
+}
+
+// FetchKlines retrieves historical klines via the embedded REST client.
+func (w *WSClient) FetchKlines(ctx context.Context, symbol string, interval string, limit int) ([]types.Kline, error) {
+	return w.rest.FetchKlines(ctx, symbol, interval, limit)
 }
 
 // SubscribeOrderBook is a placeholder for order book subscription (not used by kline strategies yet).

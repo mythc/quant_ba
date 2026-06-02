@@ -1,0 +1,31 @@
+exchange:
+  name: binance
+  base_url: https://api.binance.com
+  ws_url: wss://stream.binance.com:9443/ws
+  api_key: ""
+  secret: ""
+  testnet: true
+
+risk:
+  basic:
+    max_position_pct: 0.20
+    max_order_usdt: 5000
+    max_slippage_pct: 0.02
+    blacklist: []
+  global:
+    max_leverage: 3.0
+    max_concentration: 0.30
+    daily_trade_limit: 100
+    min_hold_seconds: 60
+  circuit_breaker:
+    daily_loss_pct: 0.05
+    consecutive_losses: 5
+    volatility_pause_pct: 0.15
+    max_drawdown_pct: 0.20
+
+store:
+  path: data/quant_ba.db
+
+server:
+  enabled: false
+  port: 8080

@@ -78,6 +78,20 @@ type Order struct {
 	StrategyID  string
 }
 
+// PnL returns the realized profit/loss for a filled order.
+func (o *Order) PnL() float64 {
+	if o.Status != OrdFilled {
+		return 0
+	}
+	if o.FilledPrice == 0 || o.Price == 0 {
+		return 0
+	}
+	if o.Side == DirBuy {
+		return 0 // Entry — PnL realized on sell only
+	}
+	return (o.FilledPrice - o.Price) * o.FilledSize
+}
+
 // Balance holds the free and locked amount of an asset.
 type Balance struct {
 	Asset  string

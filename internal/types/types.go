@@ -129,8 +129,10 @@ type StrategyParams map[string]float64
 
 // StrategyMeta describes a loaded strategy without instantiating it.
 type StrategyMeta struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Version string `json:"version"`
-	Path    string `json:"path"`
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	Version   string   `json:"version"`
+	Path      string   `json:"path"`
+	Symbols   []string `json:"symbols"`
+	Intervals []string `json:"intervals"`
 }

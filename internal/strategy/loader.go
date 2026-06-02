@@ -66,10 +66,12 @@ func (l *Loader) Load(path string) (*types.StrategyMeta, error) {
 
 	ls := &LoadedStrategy{
 		Meta: types.StrategyMeta{
-			ID:      meta.ID,
-			Name:    meta.Name,
-			Version: meta.Version,
-			Path:    path,
+			ID:        meta.ID,
+			Name:      meta.Name,
+			Version:   meta.Version,
+			Path:      path,
+			Symbols:   meta.Symbols,
+			Intervals: meta.Intervals,
 		},
 		Client: client,
 		Cmd:    cmd,

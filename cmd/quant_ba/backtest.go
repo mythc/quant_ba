@@ -20,18 +20,24 @@ var (
 )
 
 func init() {
+	backtestRunCmd.Flags().StringVar(&btSymbols, "symbols", "BTCUSDT", "Comma-separated symbols")
+	backtestRunCmd.Flags().StringVar(&btInterval, "interval", "1h", "Kline interval")
+	backtestRunCmd.Flags().StringVar(&btStart, "start", "2025-01-01", "Start date (YYYY-MM-DD)")
+	backtestRunCmd.Flags().StringVar(&btEnd, "end", "2025-12-31", "End date (YYYY-MM-DD)")
+	backtestRunCmd.Flags().Float64Var(&btCapital, "capital", 10000, "Starting capital in USDT")
+	backtestRunCmd.Flags().StringVar(&btOut, "out", "results/backtest.json", "Output file path")
+	backtestCmd.AddCommand(backtestRunCmd)
 	rootCmd.AddCommand(backtestCmd)
-	backtestCmd.Flags().StringVar(&btSymbols, "symbols", "BTCUSDT", "Comma-separated symbols")
-	backtestCmd.Flags().StringVar(&btInterval, "interval", "1h", "Kline interval")
-	backtestCmd.Flags().StringVar(&btStart, "start", "2025-01-01", "Start date (YYYY-MM-DD)")
-	backtestCmd.Flags().StringVar(&btEnd, "end", "2025-12-31", "End date (YYYY-MM-DD)")
-	backtestCmd.Flags().Float64Var(&btCapital, "capital", 10000, "Starting capital in USDT")
-	backtestCmd.Flags().StringVar(&btOut, "out", "results/backtest.json", "Output file path")
 }
 
 var backtestCmd = &cobra.Command{
-	Use:   "backtest run <strategy-id>",
+	Use:   "backtest",
 	Short: "Run backtest for a strategy",
+}
+
+var backtestRunCmd = &cobra.Command{
+	Use:   "run <plugin-path>",
+	Short: "Run backtest for a strategy plugin",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		app, err := NewApp(cmd.Flag("config").Value.String())
@@ -39,10 +45,17 @@ var backtestCmd = &cobra.Command{
 			return err
 		}
 		defer app.Store.Close()
+		defer app.Loader.Close()
 
-		ls, err := app.Loader.Get(args[0])
+		// Load the plugin binary, run backtest, then unload
+		meta, err := app.Loader.Load(args[0])
 		if err != nil {
-			return fmt.Errorf("strategy not loaded: %w", err)
+			return fmt.Errorf("load plugin: %w", err)
+		}
+
+		ls, err := app.Loader.Get(meta.ID)
+		if err != nil {
+			return fmt.Errorf("get loaded strategy: %w", err)
 		}
 
 		start, err := time.Parse("2006-01-02", btStart)

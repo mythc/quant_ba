@@ -19,8 +19,8 @@ var liveCmd = &cobra.Command{
 }
 
 var liveStartCmd = &cobra.Command{
-	Use:   "start <strategy>",
-	Short: "Start live trading for a strategy",
+	Use:   "start <plugin-path>",
+	Short: "Start live trading for a strategy plugin",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		app, err := NewApp(cmd.Flag("config").Value.String())
@@ -28,12 +28,16 @@ var liveStartCmd = &cobra.Command{
 			return err
 		}
 		defer app.Store.Close()
+		defer app.Loader.Close()
 
-		// For now, reuse PaperExecutor as the live executor.
-		// In production, swap orderMgr to LiveOM.
-		fmt.Printf("Starting live trading: %s\n", args[0])
+		// Load plugin
+		meta, err := app.Loader.Load(args[0])
+		if err != nil {
+			return fmt.Errorf("load plugin: %w", err)
+		}
+
+		fmt.Printf("Starting live trading: %s (%s)\n", meta.Name, meta.ID)
 		fmt.Println("Live trading requires valid API keys in config/default.yaml")
-		fmt.Println("(Live executor reuses paper executor for now — swap PaperOM to LiveOM for real trading)")
 		return nil
 	},
 }

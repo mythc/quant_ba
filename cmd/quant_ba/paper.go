@@ -11,12 +11,18 @@ import (
 )
 
 func init() {
+	paperCmd.AddCommand(paperStartCmd)
 	rootCmd.AddCommand(paperCmd)
 }
 
 var paperCmd = &cobra.Command{
-	Use:   "paper start <strategy-id>",
-	Short: "Start paper trading for a strategy",
+	Use:   "paper",
+	Short: "Manage paper trading",
+}
+
+var paperStartCmd = &cobra.Command{
+	Use:   "start <plugin-path>",
+	Short: "Start paper trading for a strategy plugin",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		app, err := NewApp(cmd.Flag("config").Value.String())
@@ -24,11 +30,18 @@ var paperCmd = &cobra.Command{
 			return err
 		}
 		defer app.Store.Close()
+		defer app.Loader.Close()
 
 		// Initialize paper portfolio with fake balance.
 		app.Portfolio.Init(map[string]types.Balance{
 			"USDT": {Asset: "USDT", Free: 10000},
 		})
+
+		// Load the plugin binary
+		meta, err := app.Loader.Load(args[0])
+		if err != nil {
+			return fmt.Errorf("load plugin: %w", err)
+		}
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -41,9 +54,9 @@ var paperCmd = &cobra.Command{
 			cancel()
 		}()
 
-		fmt.Printf("Starting paper trading: %s\n", args[0])
+		fmt.Printf("Starting paper trading: %s (%s)\n", meta.Name, meta.ID)
 		fmt.Println("Press Ctrl+C to stop")
-		if err := app.PaperExec.Run(ctx, args[0]); err != nil {
+		if err := app.PaperExec.Run(ctx, meta.ID); err != nil {
 			return err
 		}
 		return nil

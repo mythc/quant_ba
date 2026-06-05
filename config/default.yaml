@@ -1,6 +1,6 @@
 exchange:
   name: binance
-  base_url: https://api1.binance.com
+  base_url: https://api.binance.com
   ws_url: wss://stream.binance.com:9443/ws
   api_key: ""
   secret: ""

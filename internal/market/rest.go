@@ -28,7 +28,7 @@ func NewRESTClient(baseURL string) *RESTClient {
 	return &RESTClient{
 		baseURL: baseURL,
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: 120 * time.Second,
 		},
 	}
 }
@@ -45,6 +45,7 @@ type klineRaw struct {
 }
 
 // FetchKlines retrieves klines from Binance REST API.
+// The API returns an array of arrays: [[openTime, open, high, low, close, volume, closeTime, ...], ...]
 func (c *RESTClient) FetchKlines(ctx context.Context, symbol string, interval string, limit int) ([]types.Kline, error) {
 	if limit <= 0 {
 		limit = 500
@@ -68,26 +69,57 @@ func (c *RESTClient) FetchKlines(ctx context.Context, symbol string, interval st
 		return nil, fmt.Errorf("binance API error %d: %s", resp.StatusCode, string(body))
 	}
 
-	var raw []klineRaw
+	// Binance returns [[number, string, string, ...], ...] — decode as [][]interface{}
+	var raw [][]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		return nil, fmt.Errorf("decode klines: %w", err)
 	}
 
-	klines := make([]types.Kline, len(raw))
-	for i, r := range raw {
-		klines[i] = types.Kline{
+	klines := make([]types.Kline, 0, len(raw))
+	for _, r := range raw {
+		if len(r) < 7 {
+			continue
+		}
+		k := types.Kline{
 			Symbol:    symbol,
 			Interval:  interval,
-			OpenTime:  time.UnixMilli(r.OpenTime),
-			CloseTime: time.UnixMilli(r.CloseTime),
-			Open:      parseFloat(r.Open),
-			High:      parseFloat(r.High),
-			Low:       parseFloat(r.Low),
-			Close:     parseFloat(r.Close),
-			Volume:    parseFloat(r.Volume),
+			OpenTime:  time.UnixMilli(toInt64(r[0])),
+			CloseTime: time.UnixMilli(toInt64(r[6])),
+			Open:      toFloat(r[1]),
+			High:      toFloat(r[2]),
+			Low:       toFloat(r[3]),
+			Close:     toFloat(r[4]),
+			Volume:    toFloat(r[5]),
 		}
+		klines = append(klines, k)
 	}
 	return klines, nil
+}
+
+func toInt64(v interface{}) int64 {
+	switch n := v.(type) {
+	case float64:
+		return int64(n)
+	case json.Number:
+		i, _ := n.Int64()
+		return i
+	}
+	return 0
+}
+
+func toFloat(v interface{}) float64 {
+	switch n := v.(type) {
+	case string:
+		var f float64
+		fmt.Sscanf(n, "%f", &f)
+		return f
+	case float64:
+		return n
+	case json.Number:
+		f, _ := n.Float64()
+		return f
+	}
+	return 0
 }
 
 // parseFloat parses a numeric string into a float64.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +19,7 @@ type WSClient struct {
 	url         string
 	conn        *websocket.Conn
 	rest        *RESTClient
+	dialer      *websocket.Dialer
 	mu          sync.Mutex
 	subscribers map[string]map[chan types.Kline]struct{} // key: symbol@interval
 	done        chan struct{}
@@ -28,8 +30,12 @@ func NewWSClient(url string, rest *RESTClient) *WSClient {
 		url = defaultWSURL
 	}
 	return &WSClient{
-		url:         url,
+		url: url,
 		rest:        rest,
+		dialer: &websocket.Dialer{
+			Proxy:            http.ProxyFromEnvironment,
+			HandshakeTimeout: 30 * time.Second,
+		},
 		subscribers: make(map[string]map[chan types.Kline]struct{}),
 		done:        make(chan struct{}),
 	}
@@ -40,7 +46,7 @@ func (w *WSClient) Connect(ctx context.Context) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	conn, _, err := websocket.DefaultDialer.DialContext(ctx, w.url, nil)
+	conn, _, err := w.dialer.DialContext(ctx, w.url, nil)
 	if err != nil {
 		return fmt.Errorf("ws dial: %w", err)
 	}

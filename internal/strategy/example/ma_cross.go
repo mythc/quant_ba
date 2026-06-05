@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 
 	"github.com/colinmyth/quant_ba/internal/strategy"
@@ -43,7 +44,7 @@ func (h *MACrossHandler) Handle(req strategy.Request) strategy.Response {
 				Name:      "MA Cross",
 				Version:   "1.0.0",
 				Symbols:   []string{"BTCUSDT"},
-				Intervals: []string{"1h"},
+				Intervals: []string{"5m"},
 				Params:    types.StrategyParams{"short_period": 5, "long_period": 20},
 			}),
 		}
@@ -54,7 +55,7 @@ func (h *MACrossHandler) Handle(req strategy.Request) strategy.Response {
 		h.shortPeriod = 5
 		h.longPeriod = 20
 		h.symbols = []string{"BTCUSDT"}
-		h.interval = "1h"
+		h.interval = "5m"
 		h.prices = make(map[string][]float64)
 		return strategy.Response{ID: req.ID, Result: []byte("{}")}
 
@@ -83,12 +84,12 @@ func (h *MACrossHandler) Handle(req strategy.Request) strategy.Response {
 func (h *MACrossHandler) onBar(params strategy.OnBarParams, id string) strategy.Response {
 	symbol := params.Symbol
 
-	// Accumulate close prices
-	for _, bar := range params.Bars {
-		h.prices[symbol] = append(h.prices[symbol], bar.Close)
+	// Extract close prices from the current bar window.
+	prices := make([]float64, len(params.Bars))
+	for i, bar := range params.Bars {
+		prices[i] = bar.Close
 	}
-
-	prices := h.prices[symbol]
+	h.prices[symbol] = prices
 	if len(prices) < h.longPeriod+1 {
 		return strategy.Response{ID: id, Result: mustMarshal(strategy.SignalResult{Signal: nil})}
 	}
@@ -109,7 +110,10 @@ func (h *MACrossHandler) onBar(params strategy.OnBarParams, id string) strategy.
 
 	var sig *types.Signal
 
-	if prevShortMA <= prevLongMA && shortMA > longMA && !hasPosition {
+	fmt.Fprintf(os.Stderr, "[%s] short=%.2f long=%.2f prev=%.2f/%.2f pos=%v\n",
+			symbol, shortMA, longMA, prevShortMA, prevLongMA, hasPosition)
+
+		if prevShortMA <= prevLongMA && shortMA > longMA && !hasPosition {
 		// Golden cross -> Buy
 		sig = &types.Signal{
 			Symbol:    symbol,

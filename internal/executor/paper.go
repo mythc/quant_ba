@@ -128,13 +128,27 @@ func (e *PaperExecutor) runSymbolLoop(ctx context.Context, ls *strategy.LoadedSt
 		interval = ls.Meta.Intervals[0]
 	}
 
+	// Fetch historical bars to warm up the strategy.
+	histBars, err := e.feed.FetchKlines(ctx, symbol, interval, 50)
+	if err != nil {
+		log.Printf("warmup fetch %s: %v", symbol, err)
+		histBars = nil
+	}
+	bars := histBars
+
+	log.Printf("%s: warmup loaded %d bars", symbol, len(bars))
+
+	// Run strategy against the last warmup bar to get an initial signal.
+	if len(bars) > 0 {
+		e.processBar(ls, symbol, bars)
+	}
+
 	ch, err := e.feed.SubscribeKline(ctx, symbol, interval)
 	if err != nil {
 		log.Printf("subscribe %s: %v", symbol, err)
 		return
 	}
 
-	var bars []types.Kline
 	for {
 		select {
 		case bar, ok := <-ch:
@@ -145,56 +159,60 @@ func (e *PaperExecutor) runSymbolLoop(ctx context.Context, ls *strategy.LoadedSt
 			if len(bars) > 100 {
 				bars = bars[1:]
 			}
-
-			port := e.portfolio.GetPortfolio()
-
-			// Call strategy.
-			var sigResp strategy.SignalResult
-			barParams := strategy.OnBarParams{
-				Symbol:    symbol,
-				Bars:      bars,
-				Balances:  port.Balances,
-				Positions: port.Positions,
-			}
-			if err := ls.Client.Call("bar", barParams, &sigResp); err != nil {
-				log.Printf("strategy bar: %v", err)
-				continue
-			}
-
-			if sigResp.Signal == nil || sigResp.Signal.Direction == types.DirHold {
-				continue
-			}
-
-			sig := sigResp.Signal
-			sig.StrategyID = ls.Meta.ID
-
-			// Risk pre-check.
-			if err := e.risk.PreCheck(ctx, sig, port); err != nil {
-				log.Printf("risk blocked: %v", err)
-				continue
-			}
-
-			// Place order (paper or live).
-			ord, err := e.orderMgr.Place(ctx, sig)
-			if err != nil {
-				log.Printf("place order: %v", err)
-				continue
-			}
-
-			// Update portfolio on fill.
-			if ord.Status == types.OrdFilled {
-				e.portfolio.OnOrderFilled(*ord)
-				ls.Client.Call("order_update", strategy.OnOrderUpdateParams{
-					Order:     *ord,
-					Balances:  port.Balances,
-					Positions: port.Positions,
-				}, nil)
-				e.risk.PostCheck(ctx, *ord, port)
-			}
+			e.processBar(ls, symbol, bars)
 
 		case <-ctx.Done():
 			return
 		}
+	}
+}
+
+// processBar sends the current bar window to the strategy and handles any
+// signal: risk check, order placement, and portfolio update.
+func (e *PaperExecutor) processBar(ls *strategy.LoadedStrategy, symbol string, bars []types.Kline) {
+	port := e.portfolio.GetPortfolio()
+
+	var sigResp strategy.SignalResult
+	barParams := strategy.OnBarParams{
+		Symbol:    symbol,
+		Bars:      bars,
+		Balances:  port.Balances,
+		Positions: port.Positions,
+	}
+	if err := ls.Client.Call("bar", barParams, &sigResp); err != nil {
+		log.Printf("strategy bar: %v", err)
+		return
+	}
+
+	if sigResp.Signal == nil || sigResp.Signal.Direction == types.DirHold {
+		return
+	}
+
+	sig := sigResp.Signal
+	sig.StrategyID = ls.Meta.ID
+
+	if err := e.risk.PreCheck(context.Background(), sig, port); err != nil {
+		log.Printf("risk blocked %s: %v", symbol, err)
+		return
+	}
+
+	ord, err := e.orderMgr.Place(context.Background(), sig)
+	if err != nil {
+		log.Printf("place order %s: %v", symbol, err)
+		return
+	}
+
+	log.Printf("%s: signal=%s direction=%s size=%.4f price=%.2f order=%s",
+		symbol, sig.Reason, sig.Direction, sig.Size, sig.Price, ord.Status)
+
+	if ord.Status == types.OrdFilled {
+		e.portfolio.OnOrderFilled(*ord)
+		ls.Client.Call("order_update", strategy.OnOrderUpdateParams{
+			Order:     *ord,
+			Balances:  port.Balances,
+			Positions: port.Positions,
+		}, nil)
+		e.risk.PostCheck(context.Background(), *ord, port)
 	}
 }
 

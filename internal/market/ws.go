@@ -100,7 +100,7 @@ func (w *WSClient) Unsubscribe(symbol string, interval string) error {
 
 // FetchKlines retrieves historical klines via the embedded REST client.
 func (w *WSClient) FetchKlines(ctx context.Context, symbol string, interval string, limit int) ([]types.Kline, error) {
-	return w.rest.FetchKlines(ctx, symbol, interval, limit)
+	return w.rest.FetchKlines(ctx, symbol, interval, limit, time.Time{})
 }
 
 // SubscribeOrderBook is a placeholder for order book subscription (not used by kline strategies yet).

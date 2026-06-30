@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/colinmyth/quant_ba/internal/types"
@@ -25,12 +28,39 @@ func NewRESTClient(baseURL string) *RESTClient {
 	if baseURL == "" {
 		baseURL = defaultBaseURL
 	}
+	transport := &http.Transport{
+		Proxy:                 proxyFunc(),
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
+	}
 	return &RESTClient{
 		baseURL: baseURL,
 		httpClient: &http.Client{
-			Timeout: 120 * time.Second,
+			Timeout:   120 * time.Second,
+			Transport: transport,
 		},
 	}
+}
+
+// proxyFunc returns a proxy resolver that first checks the QUANT_BA_PROXY env
+// var, then falls back to http.ProxyFromEnvironment.
+func proxyFunc() func(*http.Request) (*url.URL, error) {
+	override := os.Getenv("QUANT_BA_PROXY")
+	if override != "" {
+		return func(*http.Request) (*url.URL, error) {
+			return url.Parse(override)
+		}
+	}
+	return http.ProxyFromEnvironment
+}
+
+// klinesPath returns the REST path for klines based on the configured base URL.
+// Spot uses /api/v3/klines; USDT-M futures uses /fapi/v1/klines.
+func (c *RESTClient) klinesPath() string {
+	if strings.Contains(c.baseURL, "fapi") {
+		return "/fapi/v1/klines"
+	}
+	return "/api/v3/klines"
 }
 
 // klineRaw is the JSON representation returned by the Binance klines endpoint.
@@ -46,17 +76,24 @@ type klineRaw struct {
 
 // FetchKlines retrieves klines from Binance REST API.
 // The API returns an array of arrays: [[openTime, open, high, low, close, volume, closeTime, ...], ...]
-func (c *RESTClient) FetchKlines(ctx context.Context, symbol string, interval string, limit int) ([]types.Kline, error) {
+// If endTime is non-zero the request uses the &endTime= parameter so callers can
+// page backwards in time. Limit is clamped to the API's per-call max (1500 for
+// spot, 1500 for futures).
+func (c *RESTClient) FetchKlines(ctx context.Context, symbol string, interval string, limit int, endTime time.Time) ([]types.Kline, error) {
 	if limit <= 0 {
 		limit = 500
 	}
-	url := fmt.Sprintf("%s/api/v3/klines?symbol=%s&interval=%s&limit=%d",
-		c.baseURL, symbol, interval, limit)
+	url := fmt.Sprintf("%s%s?symbol=%s&interval=%s&limit=%d",
+		c.baseURL, c.klinesPath(), symbol, interval, limit)
+	if !endTime.IsZero() {
+		url += fmt.Sprintf("&endTime=%d", endTime.UnixMilli())
+	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Set("User-Agent", "quant_ba/1.0")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

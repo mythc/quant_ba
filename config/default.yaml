@@ -1,7 +1,10 @@
 exchange:
   name: binance
+  mode: futures
   base_url: https://api.binance.com
   ws_url: wss://stream.binance.com:9443/ws
+  futures_url: https://fapi.binance.com
+  futures_ws_url: wss://fstream.binance.com/ws
   api_key: ""
   secret: ""
   testnet: true

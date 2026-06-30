@@ -45,8 +45,9 @@ func (m *Manager) PreCheck(ctx context.Context, signal *types.Signal, portfolio 
 	return nil
 }
 
-// PostCheck records order results and updates breaker state.
+// PostCheck records order results and updates breaker/global state.
 func (m *Manager) PostCheck(ctx context.Context, order types.Order, portfolio *types.Portfolio) error {
 	m.breaker.RecordOrder(order)
+	m.global.RecordTrade(order.Symbol)
 	return nil
 }

@@ -48,17 +48,18 @@ func NewApp(cfgPath string) (*App, error) {
 		return nil, fmt.Errorf("open store: %w", err)
 	}
 
-	rest := market.NewRESTClient(cfg.Exchange.BaseURL)
-	ws := market.NewWSClient(cfg.Exchange.WSURL, rest)
+	futures := cfg.Exchange.IsFutures()
+	rest := market.NewRESTClient(cfg.Exchange.ActiveBaseURL())
+	ws := market.NewWSClient(cfg.Exchange.ActiveWSURL(), rest)
 	cache := market.NewKlineCache(st, rest)
 
 	loader := strategy.NewLoader()
 	riskMgr := risk.New(cfg.Risk)
 
 	paperOM := order.NewPaperOrderManager()
-	liveOM := order.NewLiveOrderManager(cfg.Exchange.BaseURL, cfg.Exchange.APIKey, cfg.Exchange.Secret)
+	liveOM := order.NewLiveOrderManager(cfg.Exchange.ActiveBaseURL(), cfg.Exchange.APIKey, cfg.Exchange.Secret, futures)
 
-	portf := portfolio.New(st)
+	portf := portfolio.New(st, futures)
 
 	// Restore portfolio from snapshot.
 	if err := portf.Restore(); err != nil {

@@ -21,6 +21,15 @@ func (b *BasicRisk) Check(signal *types.Signal, portfolio *types.Portfolio) erro
 		}
 	}
 
+	// Per-order notional cap (absolute USDT limit).
+	if b.cfg.MaxOrderUSDT > 0 && signal.Price > 0 {
+		notional := signal.Size * signal.Price
+		if notional > b.cfg.MaxOrderUSDT {
+			return fmt.Errorf("risk: order notional %.2f exceeds max %.2f USDT",
+				notional, b.cfg.MaxOrderUSDT)
+		}
+	}
+
 	// Position size check
 	equity := portfolioEquity(portfolio)
 	if equity > 0 && signal.Price > 0 {

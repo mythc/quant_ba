@@ -98,14 +98,21 @@ func (s *Store) SaveKlines(klines []types.Kline) error {
 }
 
 // GetKlines retrieves cached klines ordered by open_time ascending.
+// A negative limit disables the LIMIT clause and returns all rows in range.
 func (s *Store) GetKlines(symbol, interval string, start, end time.Time, limit int) ([]types.Kline, error) {
-	rows, err := s.db.Query(`
+	query := `
 		SELECT symbol, interval, open_time, close_time, open, high, low, close, volume
 		FROM klines
 		WHERE symbol = ? AND interval = ? AND open_time >= ? AND open_time <= ?
 		ORDER BY open_time ASC
-		LIMIT ?
-	`, symbol, interval, start.UnixMilli(), end.UnixMilli(), limit)
+	`
+	var rows *sql.Rows
+	var err error
+	if limit < 0 {
+		rows, err = s.db.Query(query, symbol, interval, start.UnixMilli(), end.UnixMilli())
+	} else {
+		rows, err = s.db.Query(query+" LIMIT ?", symbol, interval, start.UnixMilli(), end.UnixMilli(), limit)
+	}
 	if err != nil {
 		return nil, err
 	}

@@ -34,7 +34,7 @@ func (c *KlineCache) GetOrFetch(ctx context.Context, symbol, interval string, li
 		return cached[:limit], nil
 	}
 
-	klines, err := c.rest.FetchKlines(ctx, symbol, interval, limit)
+	klines, err := c.rest.FetchKlines(ctx, symbol, interval, limit, time.Time{})
 	if err != nil {
 		if len(cached) > 0 {
 			return cached, nil // stale cache is better than nothing
@@ -48,6 +48,71 @@ func (c *KlineCache) GetOrFetch(ctx context.Context, symbol, interval string, li
 		}
 	}
 	return klines, nil
+}
+
+// pageSize is the per-call max for Binance klines endpoints (1500).
+const pageSize = 1500
+
+// GetOrFetchRange returns all klines for symbol/interval within [start, end],
+// paging backwards from end when the requested span exceeds a single REST
+// page. Results are persisted to the cache store as they arrive.
+func (c *KlineCache) GetOrFetchRange(ctx context.Context, symbol, interval string, start, end time.Time) ([]types.Kline, error) {
+	// Try the SQLite cache first: if it already covers [start, end] we skip
+	// the network entirely. A negative limit means "no limit" in the store.
+	if cached, err := c.store.GetKlines(symbol, interval, start, end, -1); err == nil && len(cached) > 0 {
+		first, last := cached[0].OpenTime, cached[len(cached)-1].OpenTime
+		if !first.After(start) && !last.Before(end) {
+			return cached, nil
+		}
+	}
+
+	step := klineInterval(interval)
+	var all []types.Kline
+	cursor := end
+
+	for cursor.After(start) {
+		// Page covers [cursor - pageSize*step, cursor].
+		pageStart := cursor.Add(-time.Duration(pageSize) * step)
+
+		klines, err := c.rest.FetchKlines(ctx, symbol, interval, pageSize, cursor)
+		if err != nil {
+			return nil, fmt.Errorf("fetch klines page: %w", err)
+		}
+		if len(klines) == 0 {
+			break
+		}
+		if err := c.store.SaveKlines(klines); err != nil {
+			return all, fmt.Errorf("cache save: %w", err)
+		}
+		all = append(all, klines...)
+
+		// Advance the cursor to just before the oldest bar we received.
+		oldest := klines[0].OpenTime
+		if !oldest.Before(cursor) {
+			break // safety: server returned the same window twice
+		}
+		cursor = oldest.Add(-step)
+
+		// Stop once the page no longer overlaps the requested start.
+		if cursor.Before(start) || pageStart.Before(start) {
+			break
+		}
+	}
+
+	// Filter to [start, end] and de-duplicate by OpenTime.
+	seen := make(map[int64]struct{})
+	var out []types.Kline
+	for _, k := range all {
+		if k.OpenTime.Before(start) || k.OpenTime.After(end) {
+			continue
+		}
+		if _, ok := seen[k.OpenTime.UnixMilli()]; ok {
+			continue
+		}
+		seen[k.OpenTime.UnixMilli()] = struct{}{}
+		out = append(out, k)
+	}
+	return out, nil
 }
 
 // klineInterval maps a Binance interval string to a time.Duration.

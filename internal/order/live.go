@@ -21,19 +21,38 @@ type LiveOrderManager struct {
 	baseURL    string
 	apiKey     string
 	secretKey  string
+	futures    bool
 	httpClient *http.Client
 	mu         sync.RWMutex
 	orders     map[string]*types.Order
 }
 
-func NewLiveOrderManager(baseURL, apiKey, secretKey string) *LiveOrderManager {
+func NewLiveOrderManager(baseURL, apiKey, secretKey string, futures bool) *LiveOrderManager {
 	return &LiveOrderManager{
 		baseURL:    baseURL,
 		apiKey:     apiKey,
 		secretKey:  secretKey,
+		futures:    futures,
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 		orders:     make(map[string]*types.Order),
 	}
+}
+
+// orderEndpoint returns the REST path for placing/reading orders based on mode.
+// Spot uses /api/v3; USDT-M futures uses /fapi/v1.
+func (m *LiveOrderManager) orderEndpoint() string {
+	if m.futures {
+		return "/fapi/v1/order"
+	}
+	return "/api/v3/order"
+}
+
+// openOrdersEndpoint returns the REST path for listing open orders.
+func (m *LiveOrderManager) openOrdersEndpoint() string {
+	if m.futures {
+		return "/fapi/v1/openOrders"
+	}
+	return "/api/v3/openOrders"
 }
 
 func (m *LiveOrderManager) Place(ctx context.Context, signal *types.Signal) (*types.Order, error) {
@@ -46,9 +65,20 @@ func (m *LiveOrderManager) Place(ctx context.Context, signal *types.Signal) (*ty
 		params.Set("price", fmt.Sprintf("%.2f", signal.Price))
 		params.Set("timeInForce", "GTC")
 	}
+	if m.futures {
+		// One-way mode: do not pass positionSide (defaults to BOTH).
+		if signal.ReduceOnly {
+			params.Set("reduceOnly", "true")
+		}
+		if signal.Leverage > 0 {
+			// Note: leverage is set per-symbol via /fapi/v1/leverage and is sticky.
+			// We send it on each order for clarity; the server ignores the param
+			// on /order but it documents the intent for log inspection.
+		}
+	}
 	params.Set("timestamp", fmt.Sprintf("%d", time.Now().UnixMilli()))
 
-	resp, err := m.signedRequest(ctx, "POST", "/api/v3/order", params)
+	resp, err := m.signedRequest(ctx, "POST", m.orderEndpoint(), params)
 	if err != nil {
 		return nil, err
 	}

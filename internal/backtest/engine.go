@@ -47,23 +47,14 @@ func (e *Engine) Run(ctx context.Context, strat *strategy.LoadedStrategy, symbol
 		return nil, fmt.Errorf("strategy init: %w", err)
 	}
 
-	// Fetch ALL historical data upfront
+	// Fetch ALL historical data upfront, paging through the API for long spans.
 	symbolData := make(map[string][]types.Kline)
 	for _, sym := range symbols {
-		klines, err := e.cache.GetOrFetch(ctx, sym, interval, 1000)
+		klines, err := e.cache.GetOrFetchRange(ctx, sym, interval, start, end)
 		if err != nil {
 			return nil, fmt.Errorf("fetch %s klines: %w", sym, err)
 		}
-		var filtered []types.Kline
-		for _, k := range klines {
-			if k.OpenTime.After(end) {
-				break
-			}
-			if !k.OpenTime.Before(start) {
-				filtered = append(filtered, k)
-			}
-		}
-		symbolData[sym] = filtered
+		symbolData[sym] = klines
 	}
 
 	// Build unified timeline
@@ -87,6 +78,11 @@ func (e *Engine) Run(ctx context.Context, strat *strategy.LoadedStrategy, symbol
 	equity := startCapital
 	equityCurve = append(equityCurve, types.EquityPoint{Time: start, Equity: equity})
 
+	// seen accumulates the bars revealed so far per symbol. The strategy is
+	// only ever shown data up to and including the current bar to avoid
+	// lookahead bias.
+	seen := make(map[string][]types.Kline)
+
 	for _, ts := range timestamps {
 		bars := timeMap[ts]
 		if len(bars) == 0 {
@@ -96,10 +92,12 @@ func (e *Engine) Run(ctx context.Context, strat *strategy.LoadedStrategy, symbol
 		port := e.portfolio.GetPortfolio()
 
 		for _, bar := range bars {
+			seen[bar.Symbol] = append(seen[bar.Symbol], bar)
+
 			var sigResp strategy.SignalResult
 			barParams := strategy.OnBarParams{
 				Symbol:    bar.Symbol,
-				Bars:      symbolData[bar.Symbol],
+				Bars:      seen[bar.Symbol],
 				Balances:  port.Balances,
 				Positions: port.Positions,
 			}

@@ -14,12 +14,34 @@ type Config struct {
 }
 
 type ExchangeConfig struct {
-	Name    string `yaml:"name"`
-	BaseURL string `yaml:"base_url"`
-	WSURL   string `yaml:"ws_url"`
-	APIKey  string `yaml:"api_key"`
-	Secret  string `yaml:"secret"`
-	Testnet bool   `yaml:"testnet"`
+	Name         string `yaml:"name"`
+	Mode         string `yaml:"mode"` // "spot" (default) or "futures" (USDT-M perpetual)
+	BaseURL      string `yaml:"base_url"`
+	WSURL        string `yaml:"ws_url"`
+	FuturesURL   string `yaml:"futures_url"`
+	FuturesWSURL string `yaml:"futures_ws_url"`
+	APIKey       string `yaml:"api_key"`
+	Secret       string `yaml:"secret"`
+	Testnet      bool   `yaml:"testnet"`
+}
+
+// IsFutures reports whether the exchange is configured for USDT-M futures.
+func (e ExchangeConfig) IsFutures() bool { return e.Mode == "futures" }
+
+// ActiveBaseURL returns the REST base URL for the configured mode.
+func (e ExchangeConfig) ActiveBaseURL() string {
+	if e.IsFutures() {
+		return e.FuturesURL
+	}
+	return e.BaseURL
+}
+
+// ActiveWSURL returns the WebSocket base URL for the configured mode.
+func (e ExchangeConfig) ActiveWSURL() string {
+	if e.IsFutures() {
+		return e.FuturesWSURL
+	}
+	return e.WSURL
 }
 
 type RiskConfig struct {
@@ -65,10 +87,13 @@ func Load(path string) (*Config, error) {
 	}
 	cfg := &Config{
 		Exchange: ExchangeConfig{
-			Name:    "binance",
-			BaseURL: "https://api.binance.com",
-			WSURL:   "wss://stream.binance.com:9443/ws",
-			Testnet: true,
+			Name:         "binance",
+			Mode:         "spot",
+			BaseURL:      "https://api.binance.com",
+			WSURL:        "wss://stream.binance.com:9443/ws",
+			FuturesURL:   "https://fapi.binance.com",
+			FuturesWSURL: "wss://fstream.binance.com/ws",
+			Testnet:      true,
 		},
 		Store: StoreConfig{
 			Path: "data/quant_ba.db",

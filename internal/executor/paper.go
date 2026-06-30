@@ -191,6 +191,20 @@ func (e *PaperExecutor) processBar(ls *strategy.LoadedStrategy, symbol string, b
 	sig := sigResp.Signal
 	sig.StrategyID = ls.Meta.ID
 
+	// A zero size means "close the whole position". Resolve the actual size
+	// from the current holding so the order reduces the position to zero
+	// instead of placing a no-op 0-size order.
+	sig.Size = resolveSize(sig, port.Positions)
+	if sig.Size <= 0 {
+		log.Printf("%s: skipping signal with no resolvable size (%s)", symbol, sig.Reason)
+		return
+	}
+
+	// Market signals carry no price. Resolve the latest close as the reference
+	// price so risk checks value the trade and the paper fill is priced
+	// correctly (otherwise cash is never deducted and entry price is 0).
+	sig.Price = referencePrice(sig, bars)
+
 	if err := e.risk.PreCheck(context.Background(), sig, port); err != nil {
 		log.Printf("risk blocked %s: %v", symbol, err)
 		return
@@ -214,6 +228,32 @@ func (e *PaperExecutor) processBar(ls *strategy.LoadedStrategy, symbol string, b
 		}, nil)
 		e.risk.PostCheck(context.Background(), *ord, port)
 	}
+}
+
+// resolveSize expands a zero-size signal (a "close the whole position" intent)
+// into the current position size for the signal's symbol. A signal that
+// already specifies a positive size is returned unchanged.
+func resolveSize(sig *types.Signal, positions map[string]*types.Position) float64 {
+	if sig.Size > 0 {
+		return sig.Size
+	}
+	if pos, ok := positions[sig.Symbol]; ok && pos.Size > 0 {
+		return pos.Size
+	}
+	return 0
+}
+
+// referencePrice returns the price used to value and fill a signal. Strategies
+// emit market orders without a price, so the most recent bar close is used as
+// the reference. A price already set on the signal (e.g. a limit price) wins.
+func referencePrice(sig *types.Signal, bars []types.Kline) float64 {
+	if sig.Price > 0 {
+		return sig.Price
+	}
+	if len(bars) > 0 {
+		return bars[len(bars)-1].Close
+	}
+	return 0
 }
 
 // Stop cancels the context for the given strategy, shutting down its event loop.

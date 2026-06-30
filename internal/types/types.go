@@ -52,14 +52,21 @@ type OrderBook struct {
 }
 
 // Signal is the output of a strategy.
+//
+// Direction/Size semantics use a one-way net position model (matching Binance
+// one-way mode): a buy increases the net position toward long, a sell toward
+// short. From flat, buy opens a long and sell opens a short. Size 0 means
+// "close the whole current position".
 type Signal struct {
 	Symbol     string
 	Direction  Dir
 	Size       float64 // 0 = close position, positive = quantity in base asset
 	Type       OrdType
 	Price      float64 // limit price (limit orders only)
+	Leverage   float64 // futures leverage (0/1 = no leverage); set by executor from strategy meta
+	ReduceOnly bool    // futures: order only reduces an existing position
 	Reason     string
-	StrategyID string  // set by executor, not the strategy
+	StrategyID string // set by executor, not the strategy
 }
 
 // Order represents an exchange order.
@@ -72,6 +79,9 @@ type Order struct {
 	Size        float64
 	FilledSize  float64
 	FilledPrice float64
+	Fee         float64 // trading fee in quote currency (USDT)
+	Leverage    float64 // futures leverage applied to this order (0/1 = none)
+	ReduceOnly  bool    // futures: order only reduces an existing position
 	Status      OrdStatus
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
@@ -99,7 +109,8 @@ type Balance struct {
 	Locked float64
 }
 
-// Position is a current holding.
+// Position is a current holding. For futures, Side is DirBuy for a long and
+// DirSell for a short; Size is always positive.
 type Position struct {
 	Symbol       string
 	Side         Dir
@@ -108,6 +119,9 @@ type Position struct {
 	CurrentPrice float64
 	PnL          float64
 	PnLPct       float64
+	Leverage     float64 // futures leverage for this position (0 = spot)
+	Margin       float64 // futures initial margin locked (quote currency)
+	LiqPrice     float64 // futures approximate liquidation price
 	UpdatedAt    time.Time
 }
 

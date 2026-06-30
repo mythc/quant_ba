@@ -9,6 +9,14 @@ import (
 	"github.com/colinmyth/quant_ba/internal/types"
 )
 
+// Fill modeling constants for paper trading, kept consistent with the
+// backtest engine so paper results approximate backtested ones.
+const (
+	paperSlippageBuy  = 1.0005 // market buys fill 0.05% above reference
+	paperSlippageSell = 0.9995 // market sells fill 0.05% below reference
+	paperFeeRate      = 0.001  // 0.1% taker fee
+)
+
 // PaperOrderManager simulates order execution with immediate fills for market orders.
 type PaperOrderManager struct {
 	mu     sync.RWMutex
@@ -46,11 +54,18 @@ func (p *PaperOrderManager) Place(ctx context.Context, signal *types.Signal) (*t
 	}
 	p.orders[id] = order
 
-	// Simulate immediate fill for market orders
+	// Simulate immediate fill for market orders, applying slippage and fees.
 	if order.Type == types.OrdMarket {
+		fillPrice := order.Price
+		if order.Side == types.DirBuy {
+			fillPrice *= paperSlippageBuy
+		} else {
+			fillPrice *= paperSlippageSell
+		}
 		order.Status = types.OrdFilled
 		order.FilledSize = order.Size
-		order.FilledPrice = order.Price
+		order.FilledPrice = fillPrice
+		order.Fee = order.FilledSize * fillPrice * paperFeeRate
 		order.UpdatedAt = time.Now()
 	}
 

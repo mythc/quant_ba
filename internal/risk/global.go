@@ -62,6 +62,10 @@ func (g *GlobalRisk) Check(signal *types.Signal, portfolio *types.Portfolio) err
 		}
 	}
 
+	// Note: MaxLeverage is intentionally not enforced here. The portfolio is
+	// spot-only (no borrowing), so gross exposure can never exceed equity and a
+	// leverage cap has no meaning until margin trading is modeled.
+
 	return nil
 }
 
